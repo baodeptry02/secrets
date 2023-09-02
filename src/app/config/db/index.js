@@ -4,7 +4,7 @@ const mongoose = require("mongoose");
 async function connect() {
   /* async await có cái xử lí lỗi nên ta đưa vào try case */
   try {
-    await mongoose.connect("mongodb://127.0.0.1:27017/F8_education_dev");
+    await mongoose.connect("mongodb://127.0.0.1:27017/userDB");
     console.log("Connect successfully");
   } catch (error) {
     console.log("Connect fail");
