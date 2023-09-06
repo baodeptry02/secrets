@@ -17,6 +17,8 @@ const session = require('express-session')
 const passport = require("passport")
 const passportLocalMongoose = require("passport-local-mongoose")
 
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+
 // app.use
 app.use(express.static(path.join(path.join(__dirname, "public"))));
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -31,6 +33,7 @@ app.use(session({ //section package npm
 
 app.use(passport.initialize());
 app.use(passport.session());
+
 
 // Template engine
 app.engine(
@@ -52,15 +55,29 @@ passport.serializeUser(function(user, done) {
 });
 
 // khi deserializeUser thì mình sẽ đọc fortune cookie đó từ section hoặc token bằng cách giải mã, sau đó mình sẽ biết user đó là ai
-passport.deserializeUser(function(id, done) {
-  User.findById(id)
-    .then(user => {
-      done(null, user);
-    })
-    .catch(err => {
-      done(err, null);
-    });
+passport.deserializeUser(async function(id, done) {
+  try {
+    const user = await User.findById(id).exec();
+    done(null, user);
+  } catch (err) {
+    done(err, null);
+  }
 });
+
+
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: "http://localhost:3000/auth/google/secrets",
+  userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+},
+function(accessToken, refreshToken, profile, cb) {
+
+  User.findOrCreate({ googleId: profile.id }, function (err, user) {
+    return cb(err, user);
+  });
+}
+));
 
 
 app.get("/", function(req, res) {
@@ -74,6 +91,46 @@ app.get("/login", function(req, res) {
 app.get("/register", function(req, res) {
   res.render("register");
 })
+
+app.get("/submit", function(req, res) {
+  if(req.isAuthenticated()){
+    res.render("submit")
+  } else {
+    res.redirect("/login")
+  }
+})
+
+app.post("/submit", async function(req, res) {
+  const submittedSecret = req.body.secret;
+
+  console.log(req.user.id);
+
+  try {
+    const foundUser = await User.findById(req.user.id).exec();
+    
+    if (foundUser) {
+      foundUser.secret = submittedSecret;
+      await foundUser.save();
+      res.redirect("/secrets");
+    }
+  } catch (err) {
+    console.log(err);
+    // Xử lý lỗi tại đây nếu cần thiết.
+  }
+});
+
+
+app.get("/auth/google",
+  passport.authenticate('google', { scope: ["profile"] })
+);
+
+app.get("/auth/google/secrets",
+// failureRedirect là nếu có lỗi gì nó sẽ đưa lại về route login, còn thành công thì vào trang secrets
+passport.authenticate('google', { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect to secrets.
+    res.redirect('/secrets');
+  });
 
 app.get("/secrets", function(req, res){
   // check xem nếu user đã login rồi thì render trang này luôn, còn chưa thì redirect lại trang login, đối với trường hợp vừa mới truy cập đã muốn vào trang secrects luôn
@@ -93,34 +150,28 @@ app.get("/logout", function(req, res) {
   });
 })
 
+// mở mongosh vô, truy cập vào userDB bằng lệnh use userDB, rồi sau đó sử dụng lệnh db.users.dropIndex("email_1"); để xóa thành email_1 đi, để không còn lỗi E1001 email duplicate
 app.post("/register", async function(req, res) {
-  console.log(req.body.username)
-  // tạo ra 1 đối tượng newUser
+  console.log(req.body.username);
+
+  // Tạo ra một đối tượng newUser
   const newUser = new User({
     name: req.body.firstName,
     lastName: req.body.lastName,
     address: req.body.address,
     username: req.body.username,
     active: false
-  })
-
-  User.register(newUser, req.body.password, async function(err, user){
-    if (err) {
-      console.log(err);
-      res.redirect("/register");
-    } else {
-      // authenticate ở trong local
-      passport.authenticate('local')(req, res, function() {
-        // callback function thiết lập để lưu phiên đăng nhập hiện tại của user
-        //res.redirect("/secrets");
-        res.redirect("/secrets");
-      });
-    }
-  })
   });
 
-//connect to db
-db.connect();
+  // Đăng ký người dùng mới
+  await User.register(newUser, req.body.password);
+
+  // Authenticate người dùng
+  passport.authenticate('local')(req, res, function() {
+    // callback function thiết lập để lưu phiên đăng nhập hiện tại của user
+    res.redirect("/secrets");
+  });
+});
 
 app.post('/login',  function(req, res)  {
   const user = new User( {
@@ -136,6 +187,8 @@ app.post('/login',  function(req, res)  {
   })
 });
 
+//connect to db
+db.connect();
 
 app.listen(3000, function (req, res) {
   console.log("Server is running");
