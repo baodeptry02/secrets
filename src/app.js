@@ -5,7 +5,9 @@ const express = require("express");
 const app = express();
 
 const bodyParser = require("body-parser");
-const { engine } = require("express-handlebars");
+const exphbs  = require("express-handlebars");
+const Handlebars = require('handlebars')
+const {allowInsecurePrototypeAccess} = require('@handlebars/allow-prototype-access')
 const path = require("path");
 
 const User = require("./app/userScheme/user"); //import
@@ -36,12 +38,12 @@ app.use(passport.session());
 
 
 // Template engine
-app.engine(
-  ".hbs",
-  engine({
-    extname: ".hbs",
-  })
-); //đổi tên đuôi file .handlebars thành .hbs thì những cái nào có chữ handlebars phải đổi thành .hbs hết và thêm cái extname
+const hbs = exphbs.create({
+  defaultLayout: 'main', 
+  extname: '.hbs',
+  handlebars: allowInsecurePrototypeAccess(Handlebars)
+}); //đổi tên đuôi file .handlebars thành .hbs thì những cái nào có chữ handlebars phải đổi thành .hbs hết và thêm cái extname
+app.engine('hbs', hbs.engine); 
 app.set("view engine", ".hbs");
 app.set("views", path.join(__dirname, "resources", "views"));
 
@@ -93,6 +95,7 @@ app.get("/register", function(req, res) {
 })
 
 app.get("/submit", function(req, res) {
+  // check xem nếu user đã login rồi thì render trang này luôn, còn chưa thì redirect lại trang login, đối với trường hợp vừa mới truy cập đã muốn vào trang submits luôn
   if(req.isAuthenticated()){
     res.render("submit")
   } else {
@@ -132,14 +135,22 @@ passport.authenticate('google', { failureRedirect: '/login' }),
     res.redirect('/secrets');
   });
 
-app.get("/secrets", function(req, res){
-  // check xem nếu user đã login rồi thì render trang này luôn, còn chưa thì redirect lại trang login, đối với trường hợp vừa mới truy cập đã muốn vào trang secrects luôn
-  if(req.isAuthenticated()){
-    res.render("secrets")
-  } else {
-    res.redirect("/login")
+app.get("/secrets", async (req, res) => {
+  try {
+    // Use await with the Mongoose query to find users with a non-null secret field
+     // ne = non equal, We're trying to find all the users which have a filled secret field. And we're going to pass in these
+    const foundUsers = await User.find({ "secret": { $ne: null } });
+    const usersWithSecrets = foundUsers;
+
+    // Render the "secrets" template with the found users
+    res.render("secrets", { usersWithSecrets,
+      allowInsecurePrototypeAccess: true, });
+  } catch (err) {
+    // Handle any errors
+    console.error(err);
+    res.status(500).send("Internal Server Error"); // You can customize the error handling as needed
   }
-}) 
+});
 
 app.get("/logout", function(req, res) {
   req.logout(function(err) {
