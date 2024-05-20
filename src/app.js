@@ -38,6 +38,8 @@ app.use(passport.session());
 
 
 // Template engine
+// npm install @handlebars/allow-prototype-access, const {allowInsecurePrototypeAccess} = require('@handlebars/allow-prototype-access'),
+// rồi add cái const hbs như dưới, do xung đột phiên bản
 const hbs = exphbs.create({
   defaultLayout: 'main', 
   extname: '.hbs',
